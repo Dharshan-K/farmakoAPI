@@ -7,6 +7,7 @@ CREATE TABLE medicine (
 
 CREATE TYPE usage_type_enum AS ENUM ('one_time', 'multi_use', 'time_based');
 CREATE TYPE discount_type_enum AS ENUM ('flat', 'percentage', 'free_delivery');
+CREATE TYPE discount_target_enum AS ENUM ('inventory', 'charges', 'inventory_and_charges');
 
 CREATE TABLE coupon (
     coupon_code VARCHAR(100) PRIMARY KEY,
@@ -17,6 +18,7 @@ CREATE TABLE coupon (
     valid_until TIMESTAMP,
     discount_type discount_type_enum NOT NULL,
     discount_value FLOAT NOT NULL,
+    discount_target discount_target_enum NOT NULL,
     terms_and_conditions VARCHAR(1000),
     max_usage_per_user INT
 );
