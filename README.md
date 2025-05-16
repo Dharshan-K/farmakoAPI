@@ -69,13 +69,9 @@ Make sure you have Docker and Docker Compose installed.
    docker compose up --build
    ```
 
-3. Run the backend
+   It will spin up the backend and populate the db.
 
-```bash
-go run main.go
-```
-
-4.
+3. Now API can be tested with below mentioned cURL requests.
 
 # To Test the API
 
