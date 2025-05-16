@@ -1,0 +1,26 @@
+# Version control
+.git
+.gitignore
+
+# Docker files
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Docs and init scripts
+docs/
+init.sql
+
+# OS / Editor files
+*.swp
+*.swo
+*.DS_Store
+*.idea/
+*.vscode/
+
+# Test/cache/build files
+tmp/
+*.log
+*.out
+*.test
+vendor/

@@ -1,0 +1,253 @@
+basePath: /
+definitions:
+  main.ApplicableCoupon:
+    properties:
+      coupon_code:
+        type: string
+      discount_value:
+        type: number
+    type: object
+  main.CouponData:
+    properties:
+      applicable_categories:
+        items:
+          type: string
+        type: array
+      applicable_medicine_id:
+        items:
+          type: string
+        type: array
+      coupon_code:
+        maxLength: 50
+        minLength: 3
+        type: string
+      discount_Target:
+        enum:
+        - inventory
+        - charges
+        - inventory_and_charges
+        type: string
+      discount_type:
+        enum:
+        - flat
+        - percentage
+        type: string
+      discount_value:
+        type: number
+      expiry_date:
+        type: string
+      max_usage_per_user:
+        type: integer
+      min_order_value:
+        minimum: 0
+        type: number
+      terms_and_conditions:
+        type: string
+      usage_type:
+        enum:
+        - one_time
+        - multi_use
+        - time_based
+        type: string
+      valid_from:
+        type: string
+      valid_until:
+        type: string
+    required:
+    - coupon_code
+    - discount_Target
+    - discount_type
+    - expiry_date
+    - usage_type
+    - valid_from
+    - valid_until
+    type: object
+  main.Medicine:
+    properties:
+      category:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      price:
+        type: number
+    type: object
+  main.OrderInput:
+    properties:
+      cart_items:
+        items:
+          $ref: '#/definitions/main.Medicine'
+        type: array
+      order_total:
+        type: number
+      timestamp:
+        type: string
+    type: object
+  main.UpdateCouponRequest:
+    properties:
+      coupon_code:
+        type: string
+      discount_type:
+        type: string
+      discount_value:
+        type: number
+      max_usage_per_user:
+        type: integer
+    type: object
+  main.ValidateCoupon:
+    properties:
+      cart_items:
+        items:
+          $ref: '#/definitions/main.Medicine'
+        type: array
+      coupon_code:
+        type: string
+      order_total:
+        type: number
+      timestamp:
+        type: string
+      user_id:
+        type: string
+    type: object
+host: localhost:3000
+info:
+  contact:
+    email: support@pharmaapp.com
+    name: API Support
+  description: API for managing medicine coupons and discounts
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: Farmako Coupon API
+  version: "1.0"
+paths:
+  /admin/addCoupons:
+    post:
+      consumes:
+      - application/json
+      description: Add a new coupon to the system
+      parameters:
+      - description: Coupon data
+        in: body
+        name: coupon
+        required: true
+        schema:
+          $ref: '#/definitions/main.CouponData'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Coupon added successfully
+          schema:
+            type: string
+        "400":
+          description: Validation errors
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Add a new coupon
+      tags:
+      - Admin
+  /coupon/applicable:
+    post:
+      consumes:
+      - application/json
+      description: Returns coupons applicable to the provided cart items
+      parameters:
+      - description: Cart items
+        in: body
+        name: cart
+        required: true
+        schema:
+          $ref: '#/definitions/main.OrderInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of applicable coupons
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/main.ApplicableCoupon'
+              type: array
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get applicable coupons
+      tags:
+      - Coupons
+  /coupon/update:
+    post:
+      consumes:
+      - application/json
+      description: Update coupon details
+      parameters:
+      - description: Coupon update data
+        in: body
+        name: coupon
+        required: true
+        schema:
+          $ref: '#/definitions/main.UpdateCouponRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success message
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Update an existing coupon
+      tags:
+      - Admin
+  /coupon/validate:
+    post:
+      consumes:
+      - application/json
+      description: Check if a coupon is valid for the given order
+      parameters:
+      - description: Validation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.ValidateCoupon'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Validation result
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Validate a coupon
+      tags:
+      - Coupons
+swagger: "2.0"
