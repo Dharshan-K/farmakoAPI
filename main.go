@@ -69,7 +69,7 @@ type CouponData struct {
 	TermsAndConditions string `json:"terms_and_conditions"`
 	DiscountType string `json:"discount_type" validate:"required,oneof=flat percentage"`
 	DiscountValue float64 `json:"discount_value" validate:"gt=0,lt=100"`
-	DiscountTarget string `json:"discount_Target" validate:"required,oneof=inventory charges inventory_and_charges"`
+	DiscountTarget string `json:"discount_target" validate:"required,oneof=inventory charges inventory_and_charges"`
 	MaxUsagePerUser int `json:"max_usage_per_user" validate:"gt=0"`
 }
 
@@ -96,6 +96,8 @@ func addCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		})
 	}
 
+	fmt.Println("adding the coupons")
+
 	if err:= validate.Struct(couponData); err != nil {
 		errors := make(map[string]string)
 		for _,err := range err.(validator.ValidationErrors) {
@@ -109,7 +111,8 @@ func addCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 	ctx := c.Context()
 	tx, err := connPool.Begin(ctx)
 	if err !=nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "could not start transaction"})
+		fmt.Printf("Error starting transaction: %v\n", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "could not start transaction","message" : "Transaction error"})
 	}
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `INSERT INTO coupon(coupon_code,
@@ -568,7 +571,7 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 // @host localhost:3000
 // @BasePath /
 func main(){
-	db_url := "postgres://postgres:password@localhost:5432/coupondb"
+	db_url := "postgres://postgres:password@db:5432/coupondb"
 	config, err := pgxpool.ParseConfig(db_url)
 
 	if err != nil {
@@ -579,6 +582,11 @@ func main(){
 	if err != nil {
 		log.Printf("unable to connect database: %v", err)
 	}
+	ctx := context.Background()
+	if err := connPool.Ping(ctx); err != nil {
+    log.Fatalf("Database connection error: %v", err)
+	}
+
 	defer connPool.Close()
 	cache, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: 1e4,     
