@@ -89,6 +89,7 @@ func addCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 	var couponData CouponData;
 	var validate = validator.New()
 
+	// Parses the request body
 	if err := c.BodyParser(&couponData); err != nil {
 		fmt.Println("Invalid request body")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -96,8 +97,7 @@ func addCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		})
 	}
 
-	fmt.Println("adding the coupons")
-
+	//Uses the validator to validate the provided constraints
 	if err:= validate.Struct(couponData); err != nil {
 		errors := make(map[string]string)
 		for _,err := range err.(validator.ValidationErrors) {
@@ -108,6 +108,8 @@ func addCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		})
 	}
 
+	// My architecture maintains two tables as maps coupon_category_map and coupon_medicine_map to store the arrays 
+	// ApplicableCategories and ApplicableMedicineId. So, transaction is used to make sure data is inserted in all the tables.
 	ctx := c.Context()
 	tx, err := connPool.Begin(ctx)
 	if err !=nil {
@@ -155,7 +157,9 @@ func addCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 				"error" : err,
 			})
 		}
-	} 
+	}
+
+	//Transaction is commited
 	if err := tx.Commit(ctx); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to commit transaction"})
 	}
@@ -177,6 +181,8 @@ func addCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 // @Router /coupon/update [post]	
 func updateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 	var req UpdateCouponRequest
+
+	//Parses Request body
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid input")
 	}
@@ -184,8 +190,7 @@ func updateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 	tx, err := connPool.Begin(c.Context())
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to start transaction")
-	}
-	defer tx.Rollback(c.Context()) 
+	}	
 
 	var couponID int
 	query := `SELECT id FROM coupon WHERE code = $1 FOR UPDATE`
@@ -193,9 +198,11 @@ func updateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to lock coupon")
 	}
+	defer tx.Rollback(c.Context()) 
 
+	//The necessary details are updated in the coupon table
 	updateQuery := `
-		UPDATE coupons
+		UPDATE coupon
 		SET discount_type = $1,
 				discount_value = $2,
 				max_usage_per_user = $3
@@ -207,6 +214,7 @@ func updateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Update failed")
 	}
 
+	//transaction is commites
 	if err := tx.Commit(c.Context()); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Transaction commit failed")
 	}
@@ -228,6 +236,8 @@ func updateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 // @Router /coupon/applicable [post]
 func getApplicableCoupons(c *fiber.Ctx, connPool *pgxpool.Pool, cache *ristretto.Cache) error {
 	var cart_details OrderInput;
+
+	//Parses request body
 	if err := c.BodyParser(&cart_details); err != nil {
 		fmt.Println("Invalid Input")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -235,6 +245,7 @@ func getApplicableCoupons(c *fiber.Ctx, connPool *pgxpool.Pool, cache *ristretto
 		})
 	}
 
+	//creates an array to store the medicine ID
 	medicineIDs := make([]uuid.UUID, len(cart_details.CartItems))
 	for i, item := range cart_details.CartItems {
 			medicineIDs[i] = item.ID
@@ -244,6 +255,8 @@ func getApplicableCoupons(c *fiber.Ctx, connPool *pgxpool.Pool, cache *ristretto
 	var categories []string;
 	var missingMedicineIDs []uuid.UUID
 
+	//cache is checked for medicine ID. The cache stores the details of medicines frequently accessed.
+	// if found it adds to medicines. Not found are added to missingMedicineIDs
 	for _, medID := range medicineIDs {
 		cacheKey := fmt.Sprintf("medicine:%s", medID.String())
 
@@ -267,6 +280,8 @@ func getApplicableCoupons(c *fiber.Ctx, connPool *pgxpool.Pool, cache *ristretto
 		}
 	}
 
+	// missingMedicineIDs are only queried saving time. cache is also created for these keys. these keys are given a time limit.
+	// if it has not been accessed till that time limit. the cache expires
 	if len(missingMedicineIDs) > 0 {
 		medicine_query := "SELECT id,name,category,price from medicine WHERE id = ANY($1::uuid[])"
 		ctx := c.Context()
@@ -296,6 +311,7 @@ func getApplicableCoupons(c *fiber.Ctx, connPool *pgxpool.Pool, cache *ristretto
 		}
 	}
 
+	//JOIN request to query all the coupons eligible for given medicine and category.
 	couponQuery := `SELECT DISTINCT c.coupon_code, c.discount_type, c.discount_value, c.min_order_value
 	FROM coupon c
 	LEFT JOIN coupon_medicine_map cmm ON c.coupon_code = cmm.coupon_code
@@ -319,6 +335,8 @@ func getApplicableCoupons(c *fiber.Ctx, connPool *pgxpool.Pool, cache *ristretto
 				"error" : err,
 			})
 		}
+
+		//The eligiblity is checked and discount for individual coupon code is calculated.
 		var discount float64
 		if cart_details.OrderTotal >= min_order_value {
 			if discount_type == "flat" {
@@ -357,8 +375,6 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		})
 	}
 
-	fmt.Println("coupon details: %v", coupon_details)
-
 	ctx := c.Context()
 	tx, err := connPool.Begin(ctx)
 	if err != nil {
@@ -367,6 +383,8 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 	defer tx.Rollback(ctx)
 
 	var currentUsage int
+
+	//A query to get the number of times a coupon has been redemmed by a user
 	err = tx.QueryRow(ctx,`SELECT usage FROM coupon_usage WHERE user_id = $1 AND coupon_code = $2 FOR UPDATE`, coupon_details.UserID, coupon_details.CouponCode).Scan(&currentUsage)
 
 	if err != nil {
@@ -377,6 +395,7 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		}
 	}
 
+	//Query to get the coupon detail
 	couponQuery := `SELECT 
 		coupon_code,
     expiry_date,
@@ -420,6 +439,7 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 	}
 	fmt.Println("Coupon data: %v", coupon_data)
 
+	//checks the user usage vs coupon's max usage
 	if currentUsage >= coupon_data.MaxUsagePerUser {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"is_valid": false,
@@ -427,6 +447,7 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		})
 	}
 
+	//Increments the user's usage
 	if currentUsage == 0 {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO coupon_usage (user_id, coupon_code, usage)
@@ -448,6 +469,7 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Transaction commit failed"})
 	}
 
+	//checks the coupon validity using the valid.from and valid_until
 	timestamp := coupon_details.Timestamp
 	if coupon_data.ValidFrom.IsZero() && timestamp.Before(coupon_data.ValidFrom) || 
 	coupon_data.ValidUntil.IsZero() && timestamp.After(coupon_data.ValidUntil) || 
@@ -458,7 +480,7 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		})
 	}
 
-
+	//checks the min Order value of the cart
 	if coupon_details.OrderTotal <= coupon_data.MinOrderValue {
 		return c.JSON(fiber.Map{
 			"is_valid" : false,
@@ -466,15 +488,14 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		})
 	}
 
+	//eligible medicine id and category is filtered out
 	medicineIDs := make([]uuid.UUID, len(coupon_details.CartItems))
-	fmt.Println("cart items are:%v",coupon_details.CartItems)
 	for i, item := range coupon_details.CartItems {
 			fmt.Println(item.ID, i)
 			medicineIDs[i] = item.ID
 	}
-	fmt.Println("medicine id: %v", medicineIDs)
 
-	fmt.Println("coupon code is:",coupon_details.CouponCode)
+	//queries all the medicine ids eligible for the coupon
 	medicineQuery := `SELECT medicine_id FROM coupon_medicine_map WHERE coupon_code=$1`
 	rows, err = connPool.Query(ctx, medicineQuery, coupon_details.CouponCode)
 	if err != nil {
@@ -496,14 +517,16 @@ func validateCouponHandler(c *fiber.Ctx, connPool *pgxpool.Pool) error {
 		couponMedicineIDs[id] = true;
 	};
 
+	//filters out the medicine ids not suitable for the coupon.
 	var eligibleIds []uuid.UUID
 	for _, id := range medicineIDs{
 		if couponMedicineIDs[id]{
 			eligibleIds = append(eligibleIds, id)
 		}
 	}
-	fmt.Println(eligibleIds)
 
+
+	//Discount is calculated on inventory and charges
 	medicinePriceQuery := `SELECT id,price FROM medicine WHERE id = ANY($1)`
 	rows, err = connPool.Query(ctx, medicinePriceQuery, eligibleIds)
 	var totalPrice, totalCharges float64

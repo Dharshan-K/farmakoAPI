@@ -14,6 +14,146 @@ This project implements a high-performance Coupon API for Farmako, designed usin
 
 ---
 
+## Database design
+
+# Coupon System Schema
+
+This document describes the schema design for a **Coupon System** that supports flexible discounting logic across medicines and categories. It enables usage tracking, category- and item-specific applicability, and rich metadata on coupon rules and constraints.
+
+---
+
+## 🗂️ Database Tables
+
+### 1. `medicine`
+
+| Column     | Type               | Nullable | Description                            |
+| ---------- | ------------------ | -------- | -------------------------------------- |
+| `id`       | `uuid`             | NO       | Primary key, unique ID for medicine    |
+| `name`     | `varchar(255)`     | NO       | Name of the medicine                   |
+| `category` | `varchar(100)`     | NO       | Category name this medicine belongs to |
+| `price`    | `double precision` | NO       | Price of the medicine                  |
+
+- **Primary Key**: `id`
+- **Relations**: Referenced by `coupon_medicine_map`
+
+---
+
+### 2. `coupon`
+
+| Column                 | Type                   | Nullable | Description                                                             |
+| ---------------------- | ---------------------- | -------- | ----------------------------------------------------------------------- |
+| `coupon_code`          | `varchar(100)`         | NO       | Primary key: Unique coupon identifier                                   |
+| `expiry_date`          | `timestamp`            | NO       | Expiration datetime of the coupon                                       |
+| `usage_type`           | `usage_type_enum`      | NO       | Coupon usage model: `one_time`, `multi_use`, `time_based`               |
+| `min_order_value`      | `double precision`     | YES      | Minimum order value required to apply this coupon                       |
+| `valid_from`           | `timestamp`            | YES      | Date-time from when the coupon is valid                                 |
+| `valid_until`          | `timestamp`            | YES      | Date-time until when the coupon remains valid                           |
+| `discount_type`        | `discount_type_enum`   | NO       | Type of discount: `flat`, `percentage`, `free_delivery`                 |
+| `discount_value`       | `double precision`     | NO       | The actual discount value (amount or percentage based on type)          |
+| `terms_and_conditions` | `varchar(1000)`        | YES      | Optional terms shown to the user                                        |
+| `max_usage_per_user`   | `integer`              | YES      | Optional limit on how many times a user can use this coupon             |
+| `discount_target`      | `discount_target_enum` | NO       | Target of the discount: `inventory`, `charges`, `inventory_and_charges` |
+
+- **Primary Key**: `coupon_code`
+- **Relations**:
+  - Referenced by `coupon_medicine_map`, `coupon_category_map`, and `coupon_usage`
+
+---
+
+### 3. `coupon_medicine_map`
+
+| Column        | Type           | Nullable | Description                         |
+| ------------- | -------------- | -------- | ----------------------------------- |
+| `coupon_code` | `varchar(100)` | NO       | Foreign key to `coupon.coupon_code` |
+| `medicine_id` | `uuid`         | NO       | Foreign key to `medicine.id`        |
+
+- **Primary Key**: Composite of `coupon_code` and `medicine_id`
+- **Purpose**: Maps coupons to individual medicines
+- **Usage**: A coupon applies to a medicine **only if** it's listed here (unless applicable via category)
+
+---
+
+### 4. `coupon_category_map`
+
+| Column          | Type           | Nullable | Description                                |
+| --------------- | -------------- | -------- | ------------------------------------------ |
+| `coupon_code`   | `varchar(100)` | NO       | Foreign key to `coupon.coupon_code`        |
+| `category_name` | `varchar(100)` | NO       | Category to which the coupon is applicable |
+
+- **Primary Key**: Composite of `coupon_code` and `category_name`
+- **Purpose**: Maps coupons to product categories
+- **Usage**: Coupon applies to medicines within the specified category
+
+---
+
+### 5. `coupon_usage`
+
+| Column        | Type      | Nullable | Description                                   |
+| ------------- | --------- | -------- | --------------------------------------------- |
+| `user_id`     | `uuid`    | NO       | User who used the coupon                      |
+| `coupon_code` | `text`    | NO       | Foreign key to `coupon.coupon_code`           |
+| `usage`       | `integer` | NO       | Number of times the user has used this coupon |
+
+- **Primary Key**: Composite of `user_id` and `coupon_code`
+- **Purpose**: Tracks how many times a user has used a specific coupon
+- **Usage Enforcement**: Enforces `max_usage_per_user` where applicable
+
+---
+
+## 🧩 Enums
+
+### `usage_type_enum`
+
+| Value        | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
+| `one_time`   | Can be used once globally                                    |
+| `multi_use`  | Can be used multiple times per user (subject to limits)      |
+| `time_based` | Valid only within a time range (`valid_from`, `valid_until`) |
+
+### `discount_type_enum`
+
+| Value           | Description                           |
+| --------------- | ------------------------------------- |
+| `flat`          | Fixed value discount (e.g., ₹50 off)  |
+| `percentage`    | Percentage-based discount (e.g., 10%) |
+| `free_delivery` | Waives delivery charges               |
+
+### `discount_target_enum`
+
+| Value                   | Description                                        |
+| ----------------------- | -------------------------------------------------- |
+| `inventory`             | Applies to item prices only                        |
+| `charges`               | Applies to additional charges (e.g., delivery fee) |
+| `inventory_and_charges` | Applies to both item cost and charges              |
+
+---
+
+## UML diagram
+
+![Database Schema](./uml.svg)
+
+## 📐 Design Rationale
+
+- **Extensibility**: Mapping tables (`coupon_medicine_map`, `coupon_category_map`) decouple coupons from business objects, supporting dynamic eligibility logic.
+- **Validation Efficiency**: Foreign key constraints ensure data consistency and enforce relationships.
+- **Enum Usage**: Promotes readability and type safety for categorical coupon properties.
+- **Usage Tracking**: `coupon_usage` allows strict enforcement of per-user limits and tracking for analytics.
+- **Flexible Discounting**: Coupons can target specific components of an order (`inventory`, `charges`) and apply different discount styles.
+
+---
+
+## ⚙️ Business Logic Summary
+
+- A coupon **must be mapped** to either:
+  - A set of `medicine_id`s via `coupon_medicine_map`, **or**
+  - A set of `category_name`s via `coupon_category_map`.
+- Eligibility is determined by whether the cart contains applicable medicines **or** categories.
+- Coupons must also satisfy:
+  - Valid time range (`valid_from`, `valid_until`)
+  - Minimum order value, if specified
+  - Usage limits per user, if any
+  - Global expiration date (`expiry_date`)
+
 ## 📌 API Endpoints
 
 ### 1. **Add Coupons**
@@ -72,6 +212,7 @@ Make sure you have Docker and Docker Compose installed.
    It will spin up the backend and populate the db.
 
 3. Now API can be tested with below mentioned cURL requests.
+4. To access Swagger documentation http://localhost:3000/swagger/index.html#/
 
 # To Test the API
 
